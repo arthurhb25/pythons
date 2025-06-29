@@ -1,7 +1,9 @@
 import pygame
 from config import *
-from python import Python
 from apple import Apple
+from player import create_player1, create_player2
+from modes import GameMode, get_mode_settings
+from ui import draw_scores, draw_game_over_text
 
 class Game:
     def __init__(self):
@@ -12,55 +14,54 @@ class Game:
         self.font = pygame.font.Font(None, FONT_SIZE)
         self.running = True
         self.game_over = False
-
         self.state = "title"
-        self.menu_options = ["Classic", "Time Attack", "Settings"]
+        self.menu_options = [
+            "Classic 1P", "Classic 2P", "Time Attack 1P", "Time Attack 2P", "Settings"
+        ]
         self.selected_option = 0
-
         self.speed = DEFAULT_SPEED
         self.initial_snake_size = DEFAULT_INITIAL_SNAKE_SIZE
         self.theme = "Dark"
         self.settings_selected = 0
-
         self.time_attack_minutes = DEFAULT_TIME_ATTACK_MINUTES
         self.time_attack_time_left = 0
         self.time_attack_active = False
-
-        self.player1 = Python(5, 5, BLUE, PLAYER_1_KEYS)
-        self.player2 = Python(GRID_WIDTH - 6, GRID_HEIGHT - 6, YELLOW, PLAYER_2_KEYS)
+        self.mode = GameMode.CLASSIC_2P
+        self.player1 = create_player1()
+        self.player2 = create_player2()
         self.pythons = [self.player1, self.player2]
         self.apple = Apple()
         self.apple.randomize(self.pythons)
+        self.color_swap = False
 
     def get_colors(self):
         if self.theme == "Dark":
-            return {
-                "bg": BLACK,
-                "text": WHITE,
-                "highlight": YELLOW,
-                "title": BLUE
-            }
+            return {"bg": BLACK, "text": WHITE, "highlight": YELLOW, "title": BLUE}
         else:
-            return {
-                "bg": WHITE,
-                "text": BLACK,
-                "highlight": BLUE,
-                "title": YELLOW,
-            }
+            return {"bg": WHITE, "text": BLACK, "highlight": BLUE, "title": YELLOW}
 
-    def reset_game(self, mode="Classic"):
-        self.player1 = Python(5, 5, BLUE, PLAYER_1_KEYS)
-        self.player2 = Python(GRID_WIDTH - 6, GRID_HEIGHT - 6, YELLOW, PLAYER_2_KEYS)
-        self.pythons = [self.player1, self.player2]
+    def reset_game(self, mode):
+        settings = get_mode_settings(mode)
+        self.mode = mode
+        if self.color_swap:
+            p1_color, p2_color = YELLOW, BLUE
+        else:
+            p1_color, p2_color = BLUE, YELLOW
+        from python import Python
+        self.player1 = Python(5, 5, p1_color, PLAYER_1_KEYS)
+        self.player2 = Python(GRID_WIDTH - 6, GRID_HEIGHT - 6, p2_color, PLAYER_2_KEYS) if settings["players"] == 2 else None
+        self.pythons = [self.player1] if not self.player2 else [self.player1, self.player2]
         for _ in range(self.initial_snake_size - 1):
             self.player1.grow()
-            self.player2.grow()
+            if self.player2:
+                self.player2.grow()
         self.player1.score = 0
-        self.player2.score = 0
+        if self.player2:
+            self.player2.score = 0
         self.apple = Apple()
         self.apple.randomize(self.pythons)
         self.game_over = False
-        if mode == "Time Attack":
+        if settings["time_attack"]:
             self.time_attack_time_left = self.time_attack_minutes * 60 * 1000
             self.time_attack_active = True
             self.time_attack_start_ticks = pygame.time.get_ticks()
@@ -80,7 +81,8 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.running = False
             if self.state == "title":
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_UP:
@@ -89,12 +91,18 @@ class Game:
                         self.selected_option = (self.selected_option + 1) % len(self.menu_options)
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         if self.selected_option == 0:
-                            self.reset_game("Classic")
+                            self.reset_game(GameMode.CLASSIC_1P)
                             self.state = "playing"
                         elif self.selected_option == 1:
-                            self.reset_game("Time Attack")
+                            self.reset_game(GameMode.CLASSIC_2P)
                             self.state = "playing"
                         elif self.selected_option == 2:
+                            self.reset_game(GameMode.TIME_ATTACK_1P)
+                            self.state = "playing"
+                        elif self.selected_option == 3:
+                            self.reset_game(GameMode.TIME_ATTACK_2P)
+                            self.state = "playing"
+                        elif self.selected_option == 4:
                             self.state = "settings"
             elif self.state == "settings":
                 if event.type == pygame.KEYDOWN:
@@ -109,6 +117,8 @@ class Game:
                             self.theme = "Light" if self.theme == "Dark" else "Dark"
                         elif self.settings_selected == 3:
                             self.time_attack_minutes = max(1, self.time_attack_minutes - 1)
+                        elif self.settings_selected == 4:
+                            self.color_swap = not self.color_swap
                     elif event.key == pygame.K_RIGHT:
                         if self.settings_selected == 0:
                             self.initial_snake_size = min(10, self.initial_snake_size + 1)
@@ -118,10 +128,12 @@ class Game:
                             self.theme = "Light" if self.theme == "Dark" else "Dark"
                         elif self.settings_selected == 3:
                             self.time_attack_minutes = min(10, self.time_attack_minutes + 1)
+                        elif self.settings_selected == 4:
+                            self.color_swap = not self.color_swap
                     elif event.key == pygame.K_UP:
-                        self.settings_selected = (self.settings_selected - 1) % 4
+                        self.settings_selected = (self.settings_selected - 1) % 5
                     elif event.key == pygame.K_DOWN:
-                        self.settings_selected = (self.settings_selected + 1) % 4
+                        self.settings_selected = (self.settings_selected + 1) % 5
             elif self.state == "playing":
                 for python in self.pythons:
                     python.handle_input(event)
@@ -137,11 +149,9 @@ class Game:
         for python in self.pythons:
             python.move()
             python.check_collision()
-
             if python.alive and python.body[0].colliderect(self.apple.rect):
                 python.grow()
                 self.apple.randomize(self.pythons)
-
         if self.time_attack_active:
             elapsed = pygame.time.get_ticks() - self.time_attack_start_ticks
             self.time_attack_time_left = self.time_attack_minutes * 60 * 1000 - elapsed
@@ -149,22 +159,9 @@ class Game:
                 self.time_attack_time_left = 0
                 self.game_over = True
                 self.state = "game_over"
-
-        if not self.player1.alive and not self.player2.alive:
+        if not self.player1.alive and (not self.player2 or not self.player2.alive):
             self.game_over = True
             self.state = "game_over"
-
-    def draw_scores(self):
-        colors = self.get_colors()
-        p1_score_text = self.font.render(f"Blue: {self.player1.score}", True, colors["text"])
-        p2_score_text = self.font.render(f"Yellow: {self.player2.score}", True, colors["text"])
-        self.screen.blit(p1_score_text, (10, 10))
-        self.screen.blit(p2_score_text, (SCREEN_WIDTH - p2_score_text.get_width() - 10, 10))
-        if self.time_attack_active:
-            mins = self.time_attack_time_left // 60000
-            secs = (self.time_attack_time_left // 1000) % 60
-            timer_text = self.font.render(f"Time: {mins}:{secs:02d}", True, colors["text"])
-            self.screen.blit(timer_text, (SCREEN_WIDTH // 2 - timer_text.get_width() // 2, 10))
 
     def draw(self):
         colors = self.get_colors()
@@ -177,12 +174,12 @@ class Game:
             for python in self.pythons:
                 python.draw(self.screen)
             self.apple.draw(self.screen)
-            self.draw_scores()
+            draw_scores(self.screen, self.font, self.player1, self.player2, colors, self.time_attack_active, self.time_attack_time_left)
             if self.game_over:
-                self.draw_game_over_text()
+                draw_game_over_text(self.screen, self.font, self.player1, self.player2, colors, self.time_attack_active)
             pygame.display.flip()
         elif self.state == "game_over":
-            self.draw_game_over_text()
+            draw_game_over_text(self.screen, self.font, self.player1, self.player2, colors, self.time_attack_active)
             pygame.display.flip()
 
     def draw_title_screen(self):
@@ -192,14 +189,13 @@ class Game:
         title_text = title_font.render("PYTHONS", True, colors["title"])
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 100))
         self.screen.blit(title_text, title_rect)
-
         menu_font = pygame.font.Font(None, MENU_FONT_SIZE)
+        menu_spacing = 38
         for i, option in enumerate(self.menu_options):
             color = colors["highlight"] if i == self.selected_option else colors["text"]
             option_text = menu_font.render(option, True, color)
-            option_rect = option_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + i * 60))
+            option_rect = option_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + i * menu_spacing))
             self.screen.blit(option_text, option_rect)
-
         instruction_font = pygame.font.Font(None, INSTRUCTION_FONT_SIZE)
         instruction_text = instruction_font.render("Use UP/DOWN to navigate and ENTER/SPACE to select", True, colors["text"])
         instruction_rect = instruction_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 60))
@@ -211,12 +207,12 @@ class Game:
         self.screen.fill(colors["bg"])
         settings_font = pygame.font.Font(None, SETTINGS_FONT_SIZE)
         y = SCREEN_HEIGHT // 2 - 120
-
         settings_list = [
             ("Initial Snake Size", self.initial_snake_size, 1, MAX_INITIAL_SNAKE_SIZE),
             ("Speed", self.speed, 1, MAX_SPEED),
             ("Theme", self.theme, None, None),
-            ("Time Attack Duration", self.time_attack_minutes, 1, MAX_DURATION)
+            ("Time Attack Duration", self.time_attack_minutes, 1, MAX_DURATION),
+            ("Python Colors", "Yellow/Blue" if self.color_swap else "Blue/Yellow", None, None)
         ]
         for i, (label, value, minval, maxval) in enumerate(settings_list):
             color = colors["highlight"] if self.settings_selected == i else colors["text"]
@@ -224,7 +220,6 @@ class Game:
             txt = settings_font.render(text, True, color)
             rect = txt.get_rect(center=(SCREEN_WIDTH // 2, y + i * 70))
             self.screen.blit(txt, rect)
-
         instruction_font = pygame.font.Font(None, INSTRUCTION_FONT_SIZE)
         instruction_text = instruction_font.render(
             "Use UP/DOWN to select, LEFT/RIGHT to change, ENTER/SPACE to return", True, colors["text"]
@@ -232,40 +227,4 @@ class Game:
         instruction_rect = instruction_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 60))
         self.screen.blit(instruction_text, instruction_rect)
         pygame.display.flip()
-
-    def draw_game_over_text(self):
-        colors = self.get_colors()
-        self.screen.fill(colors["bg"])
-        large_font = pygame.font.Font(None, GAME_OVER_FONT_SIZE)
-        if self.time_attack_active:
-            if self.player1.score > self.player2.score:
-                text = large_font.render("Blue Wins!", True, BLUE)
-            elif self.player2.score > self.player1.score:
-                text = large_font.render("Yellow Wins!", True, YELLOW)
-            else:
-                text = large_font.render("It's a Tie!", True, colors["text"])
-        else:
-            if self.player1.score > self.player2.score:
-                text = large_font.render("Blue Wins!", True, BLUE)
-            elif self.player2.score > self.player1.score:
-                text = large_font.render("Yellow Wins!", True, YELLOW)
-            else:
-                text = large_font.render("It's a Tie!", True, colors["text"])
-        text_rect = text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 60))
-        self.screen.blit(text, text_rect)
-
-        score_font = pygame.font.Font(None, FONT_SIZE)
-        score_text = score_font.render(
-            f"Final Score - Blue: {self.player1.score}  Yellow: {self.player2.score}",
-            True, colors["text"]
-        )
-        score_rect = score_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
-        self.screen.blit(score_text, score_rect)
-
-        small_font = pygame.font.Font(None, GAME_OVER_SMALL_FONT_SIZE)
-        instruction_text = small_font.render("Press ENTER/SPACE to return to title", True, colors["text"])
-        instruction_rect = instruction_text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 40))
-        self.screen.blit(instruction_text, instruction_rect)
-
-    settings_selected = 0
 
